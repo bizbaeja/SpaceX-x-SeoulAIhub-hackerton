@@ -528,11 +528,7 @@ async function apiRouter(req, res, pathname) {
 }
 
 function serveStatic(res, pathname) {
-  const relative =
-    pathname === "/" ? "entry.html" :
-    pathname === "/chat" ? "chat/index.html" :
-    pathname === "/teacher" ? "index.html" :
-    pathname.replace(/^\//, "");
+  const relative = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
   const safe = path.normalize(relative).replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(PUBLIC_DIR, safe);
 
