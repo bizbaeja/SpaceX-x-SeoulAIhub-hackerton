@@ -1,0 +1,62 @@
+---
+description: Small-step implementation and verification loop for Cursor Agent
+alwaysApply: true
+---
+
+# Implementation loop
+
+작업을 시작할 때 전체 코드베이스를 무작정 읽지 않는다. 현재 기능과 직접 관련된 entrypoint, types, DB access, route, UI 호출부부터 확인한다.
+
+## Before coding
+
+다음만 짧게 확인한다.
+
+```text
+package manager
+package.json scripts
+관련 파일 구조
+기존 DB/API 패턴
+현재 단계의 완료 조건
+```
+
+계획은 10줄 이내로 작성하고 바로 구현한다. 사용자가 구현을 요청한 경우 로컬 수정과 관련 검증을 위해 다시 승인받지 않는다.
+
+## Per-step loop
+
+각 단계는 아래 루프를 따른다.
+
+```text
+1. 최소 파일 수정
+2. typecheck/test/build 중 가장 작은 관련 검증 실행
+3. 실패 원인 확인
+4. 같은 단계에서 수정
+5. 통과하면 다음 단계
+```
+
+가능하면 package.json의 실제 script를 사용한다. 존재하지 않는 `npm run typecheck` 같은 명령을 당연히 있다고 가정하지 않는다.
+
+## Anti-loop rule
+
+같은 오류를 추측으로 두 번 이상 수정하고 있으면 멈추고 다음을 한다.
+
+```text
+에러 메시지와 호출 경로 재확인
+최근 변경 diff 축소
+mock/seed/simple path로 범위 축소
+불필요한 abstraction 제거
+```
+
+10분 이상 실제 AI/Auth/외부 API 디버깅에 소비하지 않는다. 핵심 플로우를 살리기 위해 deterministic mock, demo user, seed data로 전환한다.
+
+## Completion discipline
+
+작업 완료 보고에는 다음만 포함한다.
+
+```text
+완성된 사용자 플로우
+변경 파일
+실제로 실행한 검증과 결과
+생략한 범위/남은 위험
+```
+
+실행하지 않은 테스트, 배포, 외부 서비스 확인을 실행했다고 표현하지 않는다.

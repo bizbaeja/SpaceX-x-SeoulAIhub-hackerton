@@ -1,0 +1,50 @@
+---
+description: 90-minute youth-support hackathon MVP scope and priorities
+alwaysApply: true
+---
+
+# MVP scope
+
+최우선 목표는 아래 하나의 데모 플로우를 끝까지 동작시키는 것이다.
+
+```text
+Case → 상담 메모 → AI 구조화 → 교사 확정 → 기관 추천 → Referral → 기관 상태 변경 → Timeline
+```
+
+## 반드시 지킬 우선순위
+
+1. 이미 동작하는 구조와 패턴을 재사용한다.
+2. 세로 슬라이스가 끊기면 새 기능을 추가하지 않는다.
+3. 구현 순서는 `schema → case → AI/profile → recommendations → referral/timeline → UI`다.
+4. 기능 하나가 끝날 때마다 가장 작은 관련 검증을 실행한다.
+5. 실패한 검증을 남긴 채 다음 기능으로 넘어가지 않는다.
+6. 마지막 10분에는 기능을 추가하지 않고 smoke/build/demo만 수행한다.
+
+## 기본 제외 범위
+
+다음은 사용자가 명시적으로 다시 포함하지 않는 한 구현하지 않는다.
+
+- 실제 NEIS 연동
+- 외부 공공데이터 동기화
+- 완전한 Auth/RLS
+- 운영 수준 observability
+- 복잡한 상태 머신
+- 범용 프레임워크/대규모 리팩터링
+- 실제 AI API를 위한 장시간 prompt/debug 작업
+
+시간이 부족하면 `INFO_REQUIRED`를 빼고 `REQUESTED → ACCEPTED`만 완성한다.
+
+## MVP 데이터 모델
+
+가능하면 다음 6개 테이블만 사용한다.
+
+```text
+organizations
+services
+cases
+case_profiles
+referrals
+referral_logs
+```
+
+새 테이블이나 계층을 만들기 전에 이 구조로 표현할 수 없는지 먼저 확인한다.

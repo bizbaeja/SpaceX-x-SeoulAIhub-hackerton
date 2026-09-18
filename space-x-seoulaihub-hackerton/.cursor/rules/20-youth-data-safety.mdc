@@ -1,0 +1,52 @@
+---
+description: Safety and data-minimization rules for youth counseling MVP data
+alwaysApply: true
+---
+
+# Youth data safety
+
+이 프로젝트는 청소년 상담·지원 맥락을 다루므로 데모에서도 데이터 최소화 원칙을 유지한다.
+
+## Never put in fixtures or logs
+
+- 실제 학생 실명
+- 실제 연락처
+- 주민등록번호 또는 직접 식별 가능한 고유번호
+- 실제 학교 + 학생을 연결할 수 있는 정보
+- 원문 상담 기록 전체를 불필요한 API 응답/로그에 복제
+
+가명 예시는 `student-demo-001`, `김○○`처럼 명확히 식별한다.
+
+## AI decision boundary
+
+- AI는 위험도와 needs를 제안할 수 있지만 최종 urgency를 확정하지 않는다.
+- `suggestedUrgency`와 `confirmedUrgency`를 구분한다.
+- HIGH 제안이 있어도 교사가 명시적으로 confirmation하기 전에는 추천/Referral의 승인 조건을 만족한 것으로 처리하지 않는다.
+- 상담 원문보다 구조화된 summary/riskTypes/needs를 downstream으로 전달한다.
+
+## Referral minimum data
+
+기관으로 전달되는 기본 정보는 가능한 다음으로 제한한다.
+
+```text
+가명 case id
+연령대
+지역
+구조화 summary
+confirmed urgency
+needs
+보호자 동의 상태
+referral status
+```
+
+원문 note가 실제 기능에 필요하지 않으면 기관 응답에 넣지 않는다.
+
+## Public dataset boundary
+
+한국청소년상담복지개발원/청소년1388 공개 데이터는 문제상태 taxonomy와 데모 분포를 이해하기 위한 참고 자료로만 사용한다. 개별 공개 레코드를 실제 학생 사례로 재현하거나 특정 개인의 상태를 추정하지 않는다.
+
+현재 업로드 자료에서 확인 가능한 분류 예시는 `정신건강`, `대인관계`, `학업·진로`, `학교중단`, `과의존·중독` 등이다. 이 값들은 mock taxonomy/seed category 설계에만 활용한다.
+
+## Logs
+
+`referral_logs`에는 상태 변화와 필요한 메타데이터만 기록한다. 상담 원문, AI raw prompt, 불필요한 개인정보를 timeline log에 복제하지 않는다.
