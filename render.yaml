@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: itda-youth-chat-api
+    runtime: node
+    rootDir: space-x-seoulaihub-hackerton/backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
