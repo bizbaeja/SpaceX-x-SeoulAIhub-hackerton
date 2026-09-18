@@ -10,15 +10,17 @@ import {
   type Urgency,
 } from './domain.js';
 import { HttpError, type Role } from './http.js';
+import type { StructureOutcome } from './ai/index.js';
 import type { MatchBasis } from './recommend.js';
 
 // Case 파트 공용 조회. Referral 파트도 loadCase / getReferralPayload 를 그대로 가져다 쓸 수 있다.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (id: string) => UUID.test(id);
 
 export async function loadCase(db: Db, id: string): Promise<CaseRow> {
   // uuid 형식이 아니면 DB 캐스팅 오류(500) 대신 404
-  const [row] = UUID.test(id) ? await db.query<CaseRow>('select * from cases where id = $1::uuid', [id]) : [];
+  const [row] = isUuid(id) ? await db.query<CaseRow>('select * from cases where id = $1::uuid', [id]) : [];
   if (!row) throw new HttpError(404, 'NOT_FOUND', '사례를 찾을 수 없습니다.');
   return row;
 }
@@ -53,6 +55,33 @@ export async function loadCaseDetail(db: Db, id: string, role: Role = 'teacher')
 }
 
 export type ConfirmedProfile = ProfileRow & { confirmed_urgency: Urgency };
+
+/**
+ * AI 구조화 결과를 사례에 저장한다. (마스킹된 note + AI 제안 profile)
+ * AI 제안은 확정이 아니므로 기존 교사 확정은 초기화된다.
+ */
+export async function saveAiProfile(
+  db: Db,
+  caseId: string,
+  out: Pick<StructureOutcome, 'maskedNote' | 'profile' | 'provider'>,
+): Promise<ProfileRow> {
+  const p = out.profile;
+  await db.query('update cases set note = $2, updated_at = now() where id = $1::uuid', [caseId, out.maskedNote]);
+  const [row] = await db.query<ProfileRow>(
+    `insert into case_profiles
+       (case_id, summary, risk_types, needs, suggested_needs, signals, suggested_urgency, urgency_rationale, crisis_flag, ai_provider)
+     values ($1::uuid, $2, $3::text[], $4::text[], $4::text[], $5::text[], $6, $7, $8, $9)
+     on conflict (case_id) do update set
+       summary = excluded.summary, risk_types = excluded.risk_types, needs = excluded.needs,
+       suggested_needs = excluded.suggested_needs, signals = excluded.signals,
+       suggested_urgency = excluded.suggested_urgency, urgency_rationale = excluded.urgency_rationale,
+       crisis_flag = excluded.crisis_flag, ai_provider = excluded.ai_provider, structured_at = now(),
+       confirmed_urgency = null, confirmed_by = null, confirmed_at = null
+     returning *`,
+    [caseId, p.summary, p.riskTypes, p.needs, p.signals, p.suggestedUrgency, p.urgencyRationale, p.crisisFlag, out.provider],
+  );
+  return row;
+}
 
 /** 교사 확정 게이트. AI 제안(suggestedUrgency)만으로는 추천/의뢰로 넘어갈 수 없다. */
 export function requireConfirmed(profile: ProfileRow | null): ConfirmedProfile {

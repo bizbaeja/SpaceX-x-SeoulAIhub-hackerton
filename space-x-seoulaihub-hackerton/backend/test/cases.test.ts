@@ -6,6 +6,8 @@ import { createApp } from '../src/app.js';
 import { migrate, openDb, type Db } from '../src/db.js';
 import { DEMO_NOTE } from '../src/domain.js';
 import { getReferralPayload } from '../src/queries.js';
+import { mockChatProvider } from '../src/chat/providers.js';
+import { createChatService } from '../src/chat/service.js';
 
 const SEED_CASE_1 = '00000000-0000-4000-8000-000000000001';
 const SEED_CASE_2 = '00000000-0000-4000-8000-000000000002';
@@ -16,7 +18,7 @@ let app: ReturnType<typeof createApp>;
 beforeAll(async () => {
   db = await openDb({}); // 인메모리 PGlite + seed
   await migrate(db);
-  app = createApp({ db, ai: createAiService(mockProvider) });
+  app = createApp({ db, ai: createAiService(mockProvider), chat: createChatService(mockChatProvider) });
 });
 afterAll(async () => {
   await db.close();
@@ -157,7 +159,7 @@ describe('seed / meta', () => {
   });
 
   it('health / meta', async () => {
-    await request(app).get('/api/health').expect(200).expect((r) => expect(r.body).toEqual({ ok: true, db: 'pglite', aiProvider: 'mock' }));
+    await request(app).get('/api/health').expect(200).expect((r) => expect(r.body).toEqual({ ok: true, db: 'pglite', aiProvider: 'mock', chatProvider: 'mock' }));
     const meta = await request(app).get('/api/meta').expect(200);
     expect(meta.body.regions).toContain('강남구');
     expect(meta.body.demo.caseId).toBe(SEED_CASE_1);
