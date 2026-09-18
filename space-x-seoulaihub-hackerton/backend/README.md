@@ -21,7 +21,7 @@ npm run dev               # http://localhost:4000/api
 |---|---|
 | `npm run dev` | 개발 서버 (watch) |
 | `npm run typecheck` | 타입 검사 |
-| `npm test` | 단위·API 테스트 (인메모리 DB, mock AI) |
+| `npm test` | 단위·API 테스트 38개 (인메모리 DB, mock AI) |
 | `npm run build` / `npm start` | 빌드 후 실행 |
 | `npm run smoke` | 실행 중인 서버에 Case 데모 클릭 순서 1회 재현 (실제 AI 호출) |
 | `npm run db:reset` | DB 초기화 + seed 재적재 (서버를 끄고 실행) |
@@ -34,9 +34,13 @@ npm run dev               # http://localhost:4000/api
 | `DATABASE_URL` | (없음) | Supabase Postgres 연결 문자열. 없으면 로컬 PGlite |
 | `AI_PROVIDER` | 키 있으면 `gemini` | `gemini` \| `mock` |
 | `GEMINI_API_KEY` | | Google AI Studio 키 (`AQ.` 형식 → `x-goog-api-key` 헤더로 전송) |
-| `GEMINI_MODEL` | `gemini-3.6-flash` | 1순위 모델 |
-| `GEMINI_FALLBACK_MODELS` | `gemini-3.5-flash` | 1순위가 404/429/5xx/시간 초과일 때 시도 (쉼표 구분) |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | 구조화 1순위 모델 |
+| `GEMINI_FALLBACK_MODELS` | `gemini-3.5-flash-lite,gemini-3.1-flash-lite` | 1순위가 404/429/5xx/시간 초과일 때 시도 (쉼표 구분) |
 | `GEMINI_TIMEOUT_MS` | `15000` | 모델 1회 호출 제한 시간 |
+| `GEMINI_CHAT_MODELS` | `gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite` | 청소년 채팅 답장(스트리밍) 모델 |
+| `GEMINI_ASSESS_MODELS` | `gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash` | 채팅 내부 평가(HIGH 지수) 모델. 답장과 다른 모델을 써서 사용량 한도 분산 |
+| `GEMINI_FIRST_TOKEN_TIMEOUT_MS` | `6000` | 답장 첫 글자가 이 시간 안에 안 오면 다음 모델 |
+| `GEMINI_ASSESS_TIMEOUT_MS` | `8000` | 평가 호출 제한 시간 (넘으면 규칙 평가만 사용) |
 
 ## AI 구조화 (4.4)
 
@@ -74,6 +78,69 @@ npm run dev               # http://localhost:4000/api
 
 발표 메모(`GET /api/meta`의 `demo.note`)로 구조화하고 HIGH로 확정하면 추천 순위는 다음과 같다.
 **강남 청소년마음상담센터 100 → 강남 학교적응지원센터 90 → 서울 청소년위기지원센터 65 → 마포 청소년상담실 55**
+
+## 청소년 AI 채팅 + 내부 HIGH 지수 (추가 기능)
+
+청소년은 AI와 대화만 하고, 교사 화면에서는 대화 중 위험도(**HIGH 지수 0~100**)를 실시간으로 본다.
+HIGH가 되면 대화를 사례로 넘겨 기존 흐름(교사 확정 → 기관 추천 → Referral)으로 이어간다.
+
+데모 화면: `npm run dev` 후 **http://localhost:4000/chat-demo.html** (왼쪽 학생, 오른쪽 교사. 테스트·리허설용이고 실제 화면은 FE가 만든다)
+
+| 역할 (`X-Demo-Role`) | API | 설명 |
+|---|---|---|
+| student | `POST /api/chat/sessions` | `{ ageBand, region }` 또는 `{ caseId }` → `{ sessionId, notice, messages }` |
+| student | `POST /api/chat/sessions/:id/messages` | `{ content, stream: true }` → SSE 스트리밍 (`stream` 없으면 JSON) |
+| student | `GET /api/chat/sessions/:id/messages` | 대화 기록 `{ items }` |
+| teacher | `GET /api/chat/sessions` | 세션 목록. 위기·지수 높은 순 (`highIndex`, `level`, `crisisFlag`, `alertedAt`) |
+| teacher | `GET /api/chat/sessions/:id/assessment` | 지수, 최고치, 추이(`trend`), 위험 영역, 신호, 근거, 대화 전체 |
+| teacher | `POST /api/chat/sessions/:id/case` | 사례로 넘기기. AI 구조화 + 대화 지수를 제안 긴급도에 반영하고, 교사 확정은 여전히 필요 |
+
+**스트리밍 (SSE)**: `POST .../messages` + `{ "stream": true }`
+
+```text
+event: delta   data: {"text":"친구"}                 ← 여러 번 (2글자 단위로 흘러나옴)
+event: done    data: {"message":{...},"resources":null | [{name,contact,note}]}
+event: error   data: {"code","message"}
+```
+
+```js
+const res = await fetch(`/api/chat/sessions/${id}/messages`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-demo-role': 'student' },
+  body: JSON.stringify({ content, stream: true }),
+});
+const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = '';
+for (;;) {
+  const { done, value } = await reader.read(); if (done) break;
+  buf += decoder.decode(value, { stream: true });
+  let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+    const block = buf.slice(0, i); buf = buf.slice(i + 2);
+    const event = /^event: (.+)$/m.exec(block)?.[1];
+    const data = JSON.parse(/^data: (.+)$/m.exec(block)[1]);
+    if (event === 'delta') bubble.textContent += data.text;   // 글자가 주루룩
+    if (event === 'done' && data.resources) showHelpBanner(data.resources);
+  }
+}
+```
+
+**HIGH 지수 계산**
+
+- 메시지마다 Gemini 호출 2개가 **동시에** 나간다. 답장은 스트리밍이고, 내부 평가는 JSON이다.
+- 답장 프롬프트에는 평가 정보가 없어서 지수가 학생에게 새어 나갈 경로가 없다.
+- 최종 지수는 `max(모델 평가, 규칙 하한선)`이다. 규칙 하한선은 자해·자살 90, 학대 의심 80, 위험 영역 3개 70, 2개 50, 1개 35다.
+- 70 이상 HIGH, 40 이상 MEDIUM이다.
+- 위기 표현이 한 번 나온 세션은 이후 대화가 가벼워져도 HIGH를 유지한다. 처음 HIGH에 도달한 시각은 `alertedAt`에 남는다.
+
+**안전장치**
+
+- 대화 시작 시 안내(`notice`): AI와의 대화이고, 안전이 걱정되면 선생님께 전달될 수 있음, 109/1388 안내
+- 학생용 응답에는 `highIndex`, `level`, `crisisFlag`가 절대 없다. 테스트로 검증한다.
+- 위기 메시지면 답장 끝에 109/1388 안내를 이어서 보내고(답장에 이미 있으면 생략), 학생 화면에 연락처(`resources`)를 준다.
+- 전화번호·주민번호·이메일은 가린 뒤 저장하고 AI에 보낸다.
+- 첫 글자가 6초 안에 안 오거나 429/5xx가 나면 다음 모델로 넘어간다. 모두 실패하면 고정 답장과 규칙 평가로 대화를 이어간다.
+
+> Gemini 무료 키는 모델별 분당 한도가 낮아서, 테스트를 반복하면 `gemini-3.6-flash`가 429를 낸다. 이때는 lite 모델로 자동 전환된다(첫 글자 약 1초).
+> 발표 당일에는 결제를 활성화한 키를 쓰거나, 리허설 직후 1~2분 쉬고 시연하는 것을 권장한다.
 
 ## Referral 파트 연동
 

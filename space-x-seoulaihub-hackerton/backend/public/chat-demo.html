@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 채팅 + HIGH 지수 데모</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --youth: #2f6fed; --youth-text: #fff; --bot: #eef1f5;
+    --low: #16a34a; --medium: #d97706; --high: #dc2626; --accent: #2f6fed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #1a1f26; --text: #e6e9ee; --muted: #9aa3af; --line: #2a313b; --bot: #242b35; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  header select, header button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  header button.primary { background: var(--accent); color: #fff; border-color: var(--accent); cursor: pointer; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; min-height: 560px; }
+  section > h2 { font-size: 14px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; }
+  .notice { margin: 12px 16px 0; padding: 10px 12px; border-radius: 10px; background: var(--bot); font-size: 13px; color: var(--muted); }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; max-height: 60vh; }
+  .bubble { max-width: 82%; padding: 10px 13px; border-radius: 14px; line-height: 1.5; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; font-size: 14px; }
+  .youth { align-self: flex-end; background: var(--youth); color: var(--youth-text); border-bottom-right-radius: 4px; }
+  .assistant { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .typing::after { content: "▍"; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .resources { margin: 0 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--high); font-size: 13px; }
+  .resources b { color: var(--high); }
+  .examples { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px 0; }
+  .examples button { font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  form { display: flex; gap: 8px; padding: 12px 16px 16px; }
+  form input { flex: 1; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  form button { font: inherit; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .teacher { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .gauge { display: flex; align-items: baseline; gap: 10px; }
+  .gauge .num { font-size: 48px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; color: #fff; }
+  .bar { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .bar > div { height: 100%; width: 0; transition: width .4s, background .4s; }
+  .alert { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--high) 12%, transparent); border: 1px solid var(--high); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--bot); }
+  .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  svg { width: 100%; height: 90px; }
+  .promote { font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 채팅 + 내부 HIGH 지수 (데모)</h1>
+  <select id="ageBand"></select>
+  <select id="region"></select>
+  <button class="primary" id="start">새 대화 시작</button>
+  <span class="muted" id="providerInfo"></span>
+</header>
+<main>
+  <section>
+    <h2>학생 화면 — 지수는 보이지 않음</h2>
+    <div class="notice" id="notice">"새 대화 시작"을 누르세요.</div>
+    <div id="messages"></div>
+    <div class="resources" id="resources" hidden></div>
+    <div class="examples" id="examples"></div>
+    <form id="form">
+      <input id="input" placeholder="메시지를 입력하세요" autocomplete="off" disabled />
+      <button id="send" disabled>보내기</button>
+    </form>
+  </section>
+  <section>
+    <h2>교사 화면 — 내부 평가</h2>
+    <div class="teacher">
+      <div>
+        <div class="label">HIGH 지수 (0~100)</div>
+        <div class="gauge"><span class="num" id="idx">–</span><span class="badge" id="level" hidden></span><span class="muted" id="peak"></span></div>
+        <div class="bar"><div id="bar"></div></div>
+      </div>
+      <div class="alert" id="alert" hidden></div>
+      <div><div class="label">지수 추이 (학생 메시지별)</div><svg id="trend" viewBox="0 0 300 90" preserveAspectRatio="none"></svg></div>
+      <div><div class="label">위험 영역</div><div class="chips" id="riskTypes"><span class="muted">–</span></div></div>
+      <div><div class="label">관찰된 신호</div><div class="chips" id="signals"><span class="muted">–</span></div></div>
+      <div><div class="label">근거</div><div class="muted" id="rationale">–</div></div>
+      <div>
+        <button class="promote" id="promote" disabled>사례로 넘기기 → 교사 확정·기관 추천</button>
+        <div class="muted" id="promoted" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const COLORS = { LOW: 'var(--low)', MEDIUM: 'var(--medium)', HIGH: 'var(--high)' };
+const EXAMPLES = ['요즘 학교 가기 싫어요.', '친구랑 다툰 뒤로 계속 혼자 있어요.', '잠을 못 자서 너무 힘들어요.', '그냥 다 사라지고 싶다는 생각이 들어요.'];
+let sessionId = null;
+let busy = false;
+
+async function api(path, { role = 'student', ...init } = {}) {
+  const res = await fetch('/api' + path, { ...init, headers: { 'content-type': 'application/json', 'x-demo-role': role, ...(init.headers || {}) } });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error?.message || res.statusText);
+  return res;
+}
+
+function bubble(role, text) {
+  const el = document.createElement('div');
+  el.className = `bubble ${role}`;
+  el.textContent = text;
+  $('messages').append(el);
+  $('messages').scrollTop = $('messages').scrollHeight;
+  return el;
+}
+
+async function init() {
+  const meta = await (await api('/meta')).json();
+  $('ageBand').innerHTML = meta.ageBands.map((b) => `<option ${b === '16-18' ? 'selected' : ''}>${b}</option>`).join('');
+  $('region').innerHTML = meta.regions.map((r) => `<option ${r === '강남구' ? 'selected' : ''}>${r}</option>`).join('');
+  const health = await (await api('/health')).json();
+  $('providerInfo').textContent = `채팅 AI: ${health.chatProvider}`;
+  $('examples').innerHTML = '';
+  for (const text of EXAMPLES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.onclick = () => { if (sessionId && !busy) send(text); };
+    $('examples').append(b);
+  }
+}
+
+async function start() {
+  const res = await api('/chat/sessions', { method: 'POST', body: JSON.stringify({ ageBand: $('ageBand').value, region: $('region').value }) });
+  const data = await res.json();
+  sessionId = data.sessionId;
+  $('messages').innerHTML = '';
+  $('resources').hidden = true;
+  $('promoted').textContent = '';
+  $('notice').textContent = data.notice;
+  for (const m of data.messages) bubble(m.role, m.content);
+  $('input').disabled = $('send').disabled = false;
+  $('promote').disabled = false;
+  $('input').focus();
+  renderTeacher(null);
+}
+
+async function send(text) {
+  busy = true;
+  $('send').disabled = true;
+  bubble('youth', text);
+  const out = bubble('assistant', '');
+  out.classList.add('typing');
+  try {
+    const res = await api(`/chat/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify({ content: text, stream: true }) });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const event = /^event: (.+)$/m.exec(block)?.[1];
+        const data = JSON.parse(/^data: (.+)$/m.exec(block)?.[1] || 'null');
+        if (event === 'delta') out.textContent += data.text;
+        if (event === 'done' && data.resources) showResources(data.resources);
+        if (event === 'error') out.textContent = data.message;
+        $('messages').scrollTop = $('messages').scrollHeight;
+      }
+    }
+  } catch (e) {
+    out.textContent = `오류: ${e.message}`;
+  } finally {
+    out.classList.remove('typing');
+    busy = false;
+    $('send').disabled = false;
+    refreshTeacher();
+  }
+}
+
+function showResources(items) {
+  $('resources').hidden = false;
+  $('resources').innerHTML = '<b>도움이 필요하면 지금 연락하세요</b><br>' + items.map((r) => `${r.name} <b>${r.contact}</b> (${r.note})`).join(' · ');
+}
+
+async function refreshTeacher() {
+  if (!sessionId) return;
+  const a = await (await api(`/chat/sessions/${sessionId}/assessment`, { role: 'teacher' })).json();
+  renderTeacher(a);
+}
+
+function chips(el, items) {
+  el.innerHTML = '';
+  if (!items.length) { el.innerHTML = '<span class="muted">–</span>'; return; }
+  for (const t of items) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = t; el.append(c); }
+}
+
+function renderTeacher(a) {
+  const idx = a ? a.highIndex : null;
+  $('idx').textContent = idx ?? '–';
+  $('bar').style.width = `${idx ?? 0}%`;
+  $('bar').style.background = a ? COLORS[a.level] : 'transparent';
+  $('level').hidden = !a;
+  if (a) { $('level').textContent = a.level; $('level').style.background = COLORS[a.level]; }
+  $('peak').textContent = a ? `최고 ${a.peakHighIndex}` : '';
+  $('alert').hidden = !(a && (a.crisisFlag || a.level === 'HIGH'));
+  if (a && !$('alert').hidden) $('alert').textContent = a.crisisGuidance || `HIGH 도달 (${new Date(a.alertedAt).toLocaleTimeString()}) — 사례로 넘겨 교사 확정을 진행하세요.`;
+  chips($('riskTypes'), a ? a.riskTypes : []);
+  chips($('signals'), a ? a.signals : []);
+  $('rationale').textContent = a?.rationale || '–';
+  const points = a ? a.trend.map((t) => t.highIndex) : [];
+  const n = points.length;
+  const xy = points.map((v, i) => `${n === 1 ? 150 : (i / (n - 1)) * 290 + 5},${85 - (v / 100) * 80}`).join(' ');
+  $('trend').innerHTML =
+    `<line x1="0" x2="300" y1="${85 - 0.7 * 80}" y2="${85 - 0.7 * 80}" stroke="var(--high)" stroke-dasharray="4 4" stroke-width="1" />` +
+    (n ? `<polyline points="${xy}" fill="none" stroke="var(--accent)" stroke-width="2.5" />` +
+      points.map((v, i) => `<circle cx="${n === 1 ? 150 : (i / (n - 1)) * 290 + 5}" cy="${85 - (v / 100) * 80}" r="3.5" fill="var(--accent)" />`).join('') : '');
+}
+
+$('start').onclick = () => start().catch((e) => alert(e.message));
+$('form').onsubmit = (e) => {
+  e.preventDefault();
+  const text = $('input').value.trim();
+  if (!text || busy) return;
+  $('input').value = '';
+  send(text);
+};
+$('promote').onclick = async () => {
+  try {
+    const r = await (await api(`/chat/sessions/${sessionId}/case`, { method: 'POST', role: 'teacher' })).json();
+    $('promoted').textContent = `사례 ${r.caseId.slice(0, 8)}… 생성/갱신 · AI 제안 긴급도 ${r.profile.suggestedUrgency} · needs ${r.profile.needs.join(', ')} → 교사 확정 후 추천 가능`;
+  } catch (e) { $('promoted').textContent = e.message; }
+};
+init().catch((e) => ($('providerInfo').textContent = `서버 연결 실패: ${e.message}`));
+</script>
+</body>
+</html>

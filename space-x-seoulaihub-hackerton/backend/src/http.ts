@@ -23,22 +23,28 @@ export function parseBody<S extends z.ZodType>(schema: S, body: unknown): z.infe
   return result.data;
 }
 
-export type Role = 'teacher' | 'organization';
+// student: 청소년 AI 채팅 화면 (추가 기능)
+export const ROLES = ['teacher', 'organization', 'student'] as const;
+export type Role = (typeof ROLES)[number];
 
-const DEMO_USER: Record<Role, string> = { teacher: 'demo-teacher-001', organization: 'demo-org-staff-001' };
+const DEMO_USER: Record<Role, string> = {
+  teacher: 'demo-teacher-001',
+  organization: 'demo-org-staff-001',
+  student: 'demo-student',
+};
+const ROLE_LABEL: Record<Role, string> = { teacher: '교사', organization: '기관 담당자', student: '학생' };
 
-/** 데모 역할. 인증 대신 `X-Demo-Role: teacher | organization` 헤더를 쓴다. 없으면 teacher. */
+/** 데모 역할. 인증 대신 `X-Demo-Role: teacher | organization | student` 헤더를 쓴다. 없으면 teacher. */
 export function currentRole(req: Request): Role {
-  const role = req.header('x-demo-role')?.trim().toLowerCase();
-  if (!role || role === 'teacher') return 'teacher';
-  if (role === 'organization') return 'organization';
-  throw new HttpError(400, 'VALIDATION_ERROR', 'X-Demo-Role 헤더는 teacher 또는 organization 이어야 합니다.');
+  const role = req.header('x-demo-role')?.trim().toLowerCase() || 'teacher';
+  if ((ROLES as readonly string[]).includes(role)) return role as Role;
+  throw new HttpError(400, 'VALIDATION_ERROR', `X-Demo-Role 헤더는 ${ROLES.join(' | ')} 중 하나여야 합니다.`);
 }
 
-export function requireRole(req: Request, required: Role): { role: Role; id: string } {
+export function requireRole(req: Request, ...allowed: Role[]): { role: Role; id: string } {
   const role = currentRole(req);
-  if (role !== required) {
-    throw new HttpError(403, 'FORBIDDEN', `${required === 'teacher' ? '교사' : '기관 담당자'} 역할만 가능한 작업입니다.`);
+  if (!allowed.includes(role)) {
+    throw new HttpError(403, 'FORBIDDEN', `${allowed.map((r) => ROLE_LABEL[r]).join('·')} 역할만 가능한 작업입니다.`);
   }
   return { role, id: DEMO_USER[role] };
 }

@@ -12,11 +12,11 @@ import {
 } from '../domain.js';
 import { loadOrganizations } from '../queries.js';
 
-export function metaRouter({ db, ai }: AppContext) {
+export function metaRouter({ db, ai, chat }: AppContext) {
   const router = Router();
 
   router.get('/health', (_req, res) => {
-    res.json({ ok: true, db: db.kind, aiProvider: ai.provider });
+    res.json({ ok: true, db: db.kind, aiProvider: ai.provider, chatProvider: chat.provider });
   });
 
   // 프론트 드롭다운/배지용 값 목록

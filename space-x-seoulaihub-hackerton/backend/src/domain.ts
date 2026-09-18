@@ -45,6 +45,11 @@ export function parseAgeBand(band: string): { min: number; max: number } | null 
   return min >= 6 && max <= 24 && min <= max ? { min, max } : null;
 }
 
+// 한글 2~4자만으로 된 가명은 실명일 가능성이 높아 거부한다. (student-demo-001, 김○○ 같은 가명 사용)
+const REAL_NAME_LIKE = /^(?!익명|학생|가명|비공개)[가-힣]{2,4}$/;
+export const isRealNameLike = (alias: string) => REAL_NAME_LIKE.test(alias);
+export const REAL_NAME_MESSAGE = '실명으로 보입니다. student-demo-001, 김○○ 형태의 가명을 사용하세요.';
+
 export const CRISIS_GUIDANCE =
   '자해·자살 위험 표현이 감지되었습니다. AI 판단과 관계없이 즉시 학교 위기관리 절차(관리자 보고·보호자 연락)를 진행하고, ' +
   '필요 시 자살예방상담전화 109, 청소년상담 1388, 응급 시 112/119로 연계하세요.';

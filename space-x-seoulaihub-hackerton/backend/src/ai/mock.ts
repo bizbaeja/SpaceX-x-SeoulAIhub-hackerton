@@ -52,16 +52,25 @@ export function needsFromRisks(riskWeights: Map<RiskType, number>): Need[] {
     .map(([need]) => need);
 }
 
-export function analyzeNote({ note, ageBand, region }: StructureInput): StructuredProfile {
-  const matched = SIGNAL_RULES.filter((r) => r.pattern.test(note));
+/** 텍스트에서 규칙 신호를 찾는다. riskTypes는 신호가 많은 영역 순. (구조화·채팅 공용) */
+export function detectSignals(text: string) {
+  const matched = SIGNAL_RULES.filter((r) => r.pattern.test(text));
   const riskWeights = new Map<RiskType, number>();
   for (const r of matched) riskWeights.set(r.riskType, (riskWeights.get(r.riskType) ?? 0) + 1);
-
   const riskTypes = [...riskWeights.entries()]
     .sort((a, b) => b[1] - a[1] || RISK_TYPES.indexOf(a[0]) - RISK_TYPES.indexOf(b[0]))
     .map(([risk]) => risk);
-  const signals = matched.map((r) => r.label);
-  const crisisFlag = matched.some((r) => r.riskType === '자해·자살위험');
+  return {
+    riskWeights,
+    riskTypes,
+    signals: matched.map((r) => r.label),
+    crisisFlag: matched.some((r) => r.riskType === '자해·자살위험'),
+    escalated: matched.some((r) => r.escalate),
+  };
+}
+
+export function analyzeNote({ note, ageBand, region }: StructureInput): StructuredProfile {
+  const { riskWeights, riskTypes, signals, crisisFlag, escalated } = detectSignals(note);
   const areas = `${riskTypes.length}개 영역(${riskTypes.join(', ')})`;
 
   let suggestedUrgency: Urgency;
@@ -69,7 +78,7 @@ export function analyzeNote({ note, ageBand, region }: StructureInput): Structur
   if (crisisFlag) {
     suggestedUrgency = 'HIGH';
     urgencyRationale = '자해·자살 관련 표현 감지 — 즉시 위기 대응 필요';
-  } else if (matched.some((r) => r.escalate)) {
+  } else if (escalated) {
     suggestedUrgency = 'HIGH';
     urgencyRationale = '가정폭력·학대 의심 표현 감지 — 보호 조치 검토 필요';
   } else if (riskTypes.length >= 3) {
