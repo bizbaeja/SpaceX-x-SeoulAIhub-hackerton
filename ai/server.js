@@ -4,12 +4,64 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 
+// Optional local env: ai/.env (KEY=value lines)
+(() => {
+  const envPath = path.join(__dirname, ".env");
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const i = trimmed.indexOf("=");
+    if (i <= 0) continue;
+    const key = trimmed.slice(0, i).trim();
+    let value = trimmed.slice(i + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+})();
+
 const PORT = Number(process.env.PORT || 4173);
 const MODEL = process.env.GEMMA_MODEL || "gemma-4-26b-a4b-it";
 const API_KEY_FILE =
   process.env.GOOGLE_API_KEY_FILE ||
   path.join(os.homedir(), "OneDrive", "Desktop", "api\uD0A4.txt");
 const PUBLIC_DIR = path.join(__dirname, "public");
+const MIN_LIVE_GAP_MS = Number(process.env.AI_MIN_GAP_MS || 13_000);
+const AI_CACHE_TTL_MS = Number(process.env.AI_CACHE_TTL_MS || 60 * 60 * 1000);
+const responseCache = new Map();
+let lastLiveCallAt = 0;
+let liveInFlight = null;
+
+function hashText(text) {
+  return crypto.createHash("sha256").update(String(text).trim()).digest("hex");
+}
+
+function getCached(key) {
+  const hit = responseCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > AI_CACHE_TTL_MS) {
+    responseCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function setCached(key, value) {
+  responseCache.set(key, { at: Date.now(), value });
+  if (responseCache.size > 80) {
+    const oldest = responseCache.keys().next().value;
+    if (oldest) responseCache.delete(oldest);
+  }
+}
+
+function msUntilNextLiveCall() {
+  return Math.max(0, MIN_LIVE_GAP_MS - (Date.now() - lastLiveCallAt));
+}
 
 const institutions = [
   {
@@ -114,6 +166,12 @@ function readBody(req) {
 }
 
 function getApiKey() {
+  const fromEnv =
+    process.env.GOOGLE_API_KEY?.trim() ||
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
+
   try {
     const raw = fs.readFileSync(API_KEY_FILE, "utf8").replace(/^\uFEFF/, "").trim();
     if (!raw) throw new Error("API 키 파일이 비어 있습니다.");
@@ -140,7 +198,7 @@ function getApiKey() {
     throw new Error("파일에서 Google API 키 형식의 ASCII 토큰을 찾지 못했습니다.");
   } catch (error) {
     throw new Error(
-      "Google API 키를 읽지 못했습니다. GOOGLE_API_KEY_FILE 또는 Desktop의 api키.txt를 확인하세요."
+      "Google API 키를 읽지 못했습니다. ai/.env의 GOOGLE_API_KEY 또는 Desktop의 api키.txt를 확인하세요."
     );
   }
 }
@@ -168,8 +226,26 @@ async function callGoogleModel(prompt, {
   temperature = 0.15,
   maxOutputTokens = 2200,
   responseMimeType = "application/json",
-  thinkingLevel = model.startsWith("gemini-3.8") ? "low" : "minimal"
+  thinkingLevel = model.startsWith("gemini-3.8") ? "low" : "minimal",
+  cacheKey = null
 } = {}) {
+  if (cacheKey) {
+    const cached = getCached(cacheKey);
+    if (cached) {
+      console.info("[ai] cache hit", cacheKey.slice(0, 8));
+      return { ...cached, cached: true };
+    }
+  }
+
+  const wait = msUntilNextLiveCall();
+  if (wait > 0 || liveInFlight) {
+    const err = new Error(
+      `무료 한도 보호: ${Math.ceil(wait / 1000) || 1}초 뒤 다시 시도하거나, 같은 메모는 캐시 결과를 사용합니다.`
+    );
+    err.code = "RATE_LIMIT_SOFT";
+    throw err;
+  }
+
   const key = getApiKey();
   const url =
     "https://generativelanguage.googleapis.com/v1beta/models/" +
@@ -178,8 +254,10 @@ async function callGoogleModel(prompt, {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
+  lastLiveCallAt = Date.now();
 
   try {
+    liveInFlight = true;
     const generationConfig = {
       temperature,
       maxOutputTokens,
@@ -203,7 +281,9 @@ async function callGoogleModel(prompt, {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload?.error?.message || `Google API 오류 (${response.status})`;
-      throw new Error(message);
+      const err = new Error(message);
+      if (response.status === 429) err.code = "RATE_LIMIT";
+      throw err;
     }
 
     const text =
@@ -213,14 +293,17 @@ async function callGoogleModel(prompt, {
         .join("") || "";
 
     if (!text) throw new Error(`${model}이 빈 응답을 반환했습니다.`);
-    return { text, model };
+    const result = { text, model };
+    if (cacheKey) setCached(cacheKey, result);
+    return result;
   } finally {
+    liveInFlight = false;
     clearTimeout(timeout);
   }
 }
 
-async function callGemma(prompt) {
-  return callGoogleModel(prompt, { model: MODEL });
+async function callGemma(prompt, cacheKey = null) {
+  return callGoogleModel(prompt, { model: MODEL, cacheKey });
 }
 
 function structurePrompt(note) {
@@ -430,9 +513,24 @@ async function apiRouter(req, res, pathname) {
     const note = String(body.note || "").trim();
     if (note.length < 20) return json(res, 400, { error: "상담 메모를 20자 이상 입력하세요." });
 
-    const result = await callGemma(structurePrompt(note));
-    const structured = cleanModelJson(result.text);
-    return json(res, 200, { structured, model: result.model });
+    const cacheKey = `structure:${hashText(note)}`;
+    try {
+      const result = await callGemma(structurePrompt(note), cacheKey);
+      const structured = cleanModelJson(result.text);
+      return json(res, 200, {
+        structured,
+        model: result.model,
+        cached: Boolean(result.cached)
+      });
+    } catch (error) {
+      if (error?.code === "RATE_LIMIT_SOFT" || error?.code === "RATE_LIMIT") {
+        return json(res, 429, {
+          error: error.message,
+          retryAfterSec: Math.ceil(msUntilNextLiveCall() / 1000) || 13
+        });
+      }
+      throw error;
+    }
   }
 
   if (req.method === "POST" && pathname === "/api/match") {
@@ -446,9 +544,26 @@ async function apiRouter(req, res, pathname) {
     const institution = institutions.find(item => item.id === body.institutionId);
     if (!institution) return json(res, 404, { error: "기관을 찾지 못했습니다." });
 
-    const result = await callGemma(handoffPrompt(body.caseData || {}, institution));
-    const document = cleanModelJson(result.text);
-    return json(res, 200, { document, model: result.model });
+    const cacheKey = `handoff:${hashText(
+      JSON.stringify({ caseData: body.caseData || {}, institutionId: body.institutionId })
+    )}`;
+    try {
+      const result = await callGemma(handoffPrompt(body.caseData || {}, institution), cacheKey);
+      const document = cleanModelJson(result.text);
+      return json(res, 200, {
+        document,
+        model: result.model,
+        cached: Boolean(result.cached)
+      });
+    } catch (error) {
+      if (error?.code === "RATE_LIMIT_SOFT" || error?.code === "RATE_LIMIT") {
+        return json(res, 429, {
+          error: error.message,
+          retryAfterSec: Math.ceil(msUntilNextLiveCall() / 1000) || 13
+        });
+      }
+      throw error;
+    }
   }
 
   if (req.method === "POST" && pathname === "/api/handoff") {
@@ -576,7 +691,7 @@ function serveStatic(res, pathname) {
   return true;
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   try {
     if (url.pathname.startsWith("/api/")) {
@@ -597,22 +712,26 @@ const server = http.createServer(async (req, res) => {
     console.error("[server]", message);
     json(res, 500, { error: message });
   }
-});
+}
+
+const server = http.createServer(handleRequest);
 
 if (require.main === module) {
-  server.listen(PORT, "127.0.0.1", () => {
-    console.log(`잇다 MVP: http://127.0.0.1:${PORT}`);
+  const host = process.env.HOST || "0.0.0.0";
+  server.listen(PORT, host, () => {
+    console.log(`잇다 MVP: http://${host}:${PORT}`);
     console.log(`Gemma model: ${MODEL}`);
     console.log("API key is read server-side only; key contents are never logged.");
   });
 }
 
-module.exports = {
-  server,
-  callGemma,
-  callGoogleModel,
-  cleanModelJson,
-  structurePrompt,
-  matchInstitutions,
-  getApiKey
-};
+// Default export for Vercel (@vercel/node)
+module.exports = handleRequest;
+module.exports.handleRequest = handleRequest;
+module.exports.server = server;
+module.exports.callGemma = callGemma;
+module.exports.callGoogleModel = callGoogleModel;
+module.exports.cleanModelJson = cleanModelJson;
+module.exports.structurePrompt = structurePrompt;
+module.exports.matchInstitutions = matchInstitutions;
+module.exports.getApiKey = getApiKey;

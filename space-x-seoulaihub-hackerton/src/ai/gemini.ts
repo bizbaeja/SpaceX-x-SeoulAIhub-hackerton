@@ -5,6 +5,11 @@ import {
   type StructureInput,
   type StructureProvider,
 } from "./provider.js";
+import {
+  getCachedProfile,
+  setCachedProfile,
+  withLiveCallGate,
+} from "./rateLimit.js";
 
 const geminiProfileSchema = z.object({
   summary: z.string().min(1),
@@ -34,7 +39,7 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw);
 }
 
-async function callGemini(note: string): Promise<CaseProfile> {
+async function callGeminiRaw(note: string): Promise<CaseProfile> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY missing");
 
@@ -76,14 +81,32 @@ async function callGemini(note: string): Promise<CaseProfile> {
 export const geminiStructureProvider: StructureProvider = {
   name: "gemini",
   async structure({ note }: StructureInput) {
+    const cached = getCachedProfile(note);
+    if (cached) {
+      console.info("[structure] cache hit — Gemini call skipped");
+      return cached;
+    }
+
     try {
-      return await callGemini(note);
+      const gated = await withLiveCallGate(() => callGeminiRaw(note));
+      if (gated.skipped) {
+        console.warn(
+          "[structure] rate-limit gate — using mock (free tier RPM)"
+        );
+        const mock = mockStructureFromNote(note);
+        setCachedProfile(note, mock);
+        return mock;
+      }
+      setCachedProfile(note, gated.value);
+      return gated.value;
     } catch (err) {
       console.warn(
         "[structure] Gemini failed, falling back to mock:",
         err instanceof Error ? err.message : err
       );
-      return mockStructureFromNote(note);
+      const mock = mockStructureFromNote(note);
+      setCachedProfile(note, mock);
+      return mock;
     }
   },
 };
