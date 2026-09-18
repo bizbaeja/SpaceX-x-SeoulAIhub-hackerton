@@ -18,17 +18,27 @@
   status = 200
   force = true
 
+# force: otherwise Netlify serves public/index.html for /
 [[redirects]]
   from = "/"
   to = "/entry.html"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/chat"
   to = "/chat/index.html"
   status = 200
+  force = true
+
+[[redirects]]
+  from = "/chat/"
+  to = "/chat/index.html"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/teacher"
   to = "/index.html"
   status = 200
+  force = true
