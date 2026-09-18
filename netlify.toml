@@ -1,0 +1,19 @@
+# 레포 루트 빌드용 (Base directory 비울 때)
+[build]
+  base = "ai"
+  command = "npm install"
+  publish = "public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["public/**", "server.js", "institutions-data.json"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/server/:splat"
+  status = 200
+  force = true

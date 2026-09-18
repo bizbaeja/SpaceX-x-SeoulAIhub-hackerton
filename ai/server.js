@@ -48,6 +48,9 @@ function readBody(req) {
 }
 
 function getApiKey() {
+  const fromEnv = String(process.env.GOOGLE_API_KEY || "").trim();
+  if (fromEnv) return fromEnv;
+
   try {
     const raw = fs.readFileSync(API_KEY_FILE, "utf8").replace(/^\uFEFF/, "").trim();
     if (!raw) throw new Error("API 키 파일이 비어 있습니다.");
@@ -74,7 +77,7 @@ function getApiKey() {
     throw new Error("파일에서 Google API 키 형식의 ASCII 토큰을 찾지 못했습니다.");
   } catch (error) {
     throw new Error(
-      "Google API 키를 읽지 못했습니다. GOOGLE_API_KEY_FILE 또는 Desktop의 api키.txt를 확인하세요."
+      "Google API 키를 읽지 못했습니다. Netlify의 GOOGLE_API_KEY, 또는 GOOGLE_API_KEY_FILE/Desktop api키.txt를 확인하세요."
     );
   }
 }
@@ -553,7 +556,7 @@ function serveStatic(res, pathname) {
   return true;
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   try {
     if (url.pathname.startsWith("/api/")) {
@@ -574,22 +577,25 @@ const server = http.createServer(async (req, res) => {
     console.error("[server]", message);
     json(res, 500, { error: message });
   }
-});
+}
+
+const server = http.createServer(handleRequest);
 
 if (require.main === module) {
-  server.listen(PORT, "127.0.0.1", () => {
-    console.log(`잇다 MVP: http://127.0.0.1:${PORT}`);
+  const host = process.env.HOST || "0.0.0.0";
+  server.listen(PORT, host, () => {
+    console.log(`잇다 MVP: http://${host}:${PORT}`);
     console.log(`Gemma model: ${MODEL}`);
     console.log("API key is read server-side only; key contents are never logged.");
   });
 }
 
-module.exports = {
-  server,
-  callGemma,
-  callGoogleModel,
-  cleanModelJson,
-  structurePrompt,
-  matchInstitutions,
-  getApiKey
-};
+module.exports = handleRequest;
+module.exports.handleRequest = handleRequest;
+module.exports.server = server;
+module.exports.callGemma = callGemma;
+module.exports.callGoogleModel = callGoogleModel;
+module.exports.cleanModelJson = cleanModelJson;
+module.exports.structurePrompt = structurePrompt;
+module.exports.matchInstitutions = matchInstitutions;
+module.exports.getApiKey = getApiKey;
