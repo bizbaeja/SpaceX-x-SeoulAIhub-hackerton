@@ -15,47 +15,6 @@ const institutionDataset = require("./institutions-data.json");
 const institutions = institutionDataset.institutions;
 
 const cases = new Map();
-const chatSessions = new Map();
-const chatCaseRequests = new Map();
-
-const CHAT_RESOURCES = [
-  { name: "자살예방상담전화", contact: "109", note: "24시간" },
-  { name: "청소년상담전화", contact: "1388", note: "24시간" }
-];
-
-function isCrisisMessage(message) {
-  return /죽고\s*싶|죽을\s*(래|거|것)|사라지고\s*싶|자해|자살|손목.{0,8}긋/.test(message);
-}
-
-function mockChatReply(message) {
-  if (isCrisisMessage(message)) {
-    return "그렇게 힘든 마음을 말해줘서 고마워요. 지금 있는 곳은 안전한가요? 혼자 견디지 않아도 돼요. 지금 바로 109(자살예방상담전화)나 1388(청소년상담전화)에 연락하고, 믿을 수 있는 어른에게 알려 주세요.";
-  }
-  if (/친구|또래|다툼|갈등/.test(message)) return "친구와의 일 때문에 마음이 많이 쓰였겠어요. 어떤 일이 있었는지 편한 만큼 말해 줄래요?";
-  if (/학교|결석|등교|잠|수면|힘들/.test(message)) return "오늘 많이 버거웠겠어요. 지금 가장 힘든 부분부터 천천히 말해도 괜찮아요.";
-  return "응, 듣고 있어요. 오늘 있었던 일을 편한 만큼 이어서 이야기해도 괜찮아요.";
-}
-
-function summarizeChatForCase(session) {
-  const messages = session.messages.filter(item => item.role === "youth").map(item => item.content).join(" ");
-  if (isCrisisMessage(messages)) return "자해·자살 관련 어려움이 표현되어 즉시 안전 확인과 위기지원 검토가 필요합니다.";
-  if (/친구|또래|다툼|갈등/.test(messages)) return "또래관계의 어려움과 정서적 지원 필요가 표현되었습니다.";
-  if (/학교|결석|등교/.test(messages)) return "학교생활의 부담과 학교적응 지원 필요가 표현되었습니다.";
-  return "학생이 정서적 어려움에 대한 도움을 요청했습니다.";
-}
-
-async function createChatReply(session, content) {
-  const fallback = mockChatReply(content);
-  if (isCrisisMessage(content)) return fallback;
-  try {
-    getApiKey();
-    const prompt = `너는 ${session.ageBand} 청소년의 이야기를 듣는 AI 친구다. 판단·진단·훈계 없이 따뜻한 해요체로 2문장 이내로 답한다. 이전 대화: ${session.messages.map(item => `${item.role}: ${item.content}`).join("\n")}\n학생: ${content}`;
-    const result = await callGoogleModel(prompt, { responseMimeType: null, temperature: 0.55, maxOutputTokens: 180 });
-    return result.text.trim() || fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function json(res, status, data) {
   const body = JSON.stringify(data);
@@ -388,63 +347,6 @@ function publicCase(record) {
 }
 
 async function apiRouter(req, res, pathname) {
-  if (req.method === "POST" && pathname === "/api/chat/sessions") {
-    const body = await readBody(req);
-    const ageBand = String(body.ageBand || "13-15").trim();
-    const region = String(body.region || "서울").trim();
-    if (!ageBand || !region) return json(res, 400, { error: "ageBand와 region이 필요합니다." });
-    const id = crypto.randomUUID();
-    const greeting = "안녕, 나는 모아야. 오늘은 어땠어? 편한 만큼만 이야기해도 괜찮아.";
-    chatSessions.set(id, { id, ageBand, region, messages: [{ role: "assistant", content: greeting }] });
-    return json(res, 201, { sessionId: id, messages: [{ role: "assistant", content: greeting }], notice: "대화 전체는 자동으로 공유되지 않습니다." });
-  }
-
-  const chatMessageMatch = pathname.match(/^\/api\/chat\/sessions\/([^/]+)\/messages$/);
-  if (req.method === "POST" && chatMessageMatch) {
-    const session = chatSessions.get(chatMessageMatch[1]);
-    if (!session) return json(res, 404, { error: "대화를 찾지 못했습니다." });
-    const body = await readBody(req);
-    const content = String(body.content || "").trim();
-    if (!content || content.length > 1000) return json(res, 400, { error: "메시지는 1~1000자로 입력하세요." });
-    session.messages.push({ role: "youth", content });
-    const reply = await createChatReply(session, content);
-    session.messages.push({ role: "assistant", content: reply });
-    const result = { message: { role: "assistant", content: reply }, resources: isCrisisMessage(content) ? CHAT_RESOURCES : null };
-    if (body.stream) {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive"
-      });
-      res.write(`event: delta\ndata: ${JSON.stringify({ text: reply })}\n\n`);
-      res.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
-      res.end();
-      return true;
-    }
-    return json(res, 200, result);
-  }
-
-  const helpRequestMatch = pathname.match(/^\/api\/chat\/sessions\/([^/]+)\/help-request$/);
-  if (req.method === "POST" && helpRequestMatch) {
-    const session = chatSessions.get(helpRequestMatch[1]);
-    if (!session) return json(res, 404, { error: "대화를 찾지 못했습니다." });
-    const body = await readBody(req);
-    if (body.consentToShare !== true) return json(res, 400, { error: "도움 요청을 위해 공유 동의가 필요합니다." });
-    if (!session.messages.some(item => item.role === "youth")) return json(res, 409, { error: "도움 요청에 사용할 학생 메시지가 없습니다." });
-    if (session.caseId) return json(res, 409, { error: "이미 도움 요청이 전달되었습니다." });
-    const caseId = crypto.randomUUID();
-    chatCaseRequests.set(caseId, {
-      id: caseId,
-      source: "STUDENT_AI_REQUEST",
-      ageBand: session.ageBand,
-      region: session.region,
-      summary: summarizeChatForCase(session),
-      consentStatus: "CONFIRMED"
-    });
-    session.caseId = caseId;
-    return json(res, 201, { caseId, source: "STUDENT_AI_REQUEST", consentToShare: true });
-  }
-
   if (req.method === "GET" && pathname === "/api/health") {
     let keyReadable = false;
     try {
