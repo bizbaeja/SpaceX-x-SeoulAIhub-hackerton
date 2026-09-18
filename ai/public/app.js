@@ -14,7 +14,8 @@ const state = {
   selectedInstitution: null,
   handoffDocument: null,
   caseRecord: null,
-  stage: 1
+  stage: 1,
+  lastStructuredNote: null
 };
 
 function escapeHtml(value) {
@@ -32,7 +33,13 @@ async function api(url, options = {}) {
     ...options
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "요청 처리에 실패했습니다.");
+  if (!response.ok) {
+    const extra =
+      response.status === 429 && data.retryAfterSec
+        ? ` (${data.retryAfterSec}초 후 재시도)`
+        : "";
+    throw new Error((data.error || "요청 처리에 실패했습니다.") + extra);
+  }
   return data;
 }
 
@@ -298,6 +305,16 @@ $("#structureBtn").addEventListener("click", async () => {
   const btn = $("#structureBtn");
   const errorBox = $("#inputError");
   errorBox.classList.add("hidden");
+
+  // Same note already structured in this session → no API call
+  if (state.structured && state.lastStructuredNote === note) {
+    renderStructure(state.structured);
+    setStage(2);
+    toast("같은 메모라 캐시된 구조화 결과를 사용했습니다.");
+    return;
+  }
+
+  if (btn.disabled) return;
   loading(btn, true);
 
   try {
@@ -306,8 +323,10 @@ $("#structureBtn").addEventListener("click", async () => {
       body: JSON.stringify({ note })
     });
     state.structured = result.structured;
+    state.lastStructuredNote = note;
     renderStructure(state.structured);
     setStage(2);
+    if (result.cached) toast("캐시된 AI 결과를 사용했습니다.");
   } catch (error) {
     errorBox.textContent = error.message;
     errorBox.classList.remove("hidden");

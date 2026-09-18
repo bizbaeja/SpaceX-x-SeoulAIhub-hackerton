@@ -53,8 +53,10 @@ casesRouter.get("/", (_req, res) => {
 });
 
 casesRouter.post("/:id/structure", async (req, res) => {
-  const caseId = req.params.id;
-  const found = store.getCase(caseId);
+  const caseId = Array.isArray(req.params.id)
+    ? req.params.id[0]
+    : req.params.id;
+  const found = store.getCase(caseId!);
   if (!found) {
     return res.status(404).json({
       error: { code: "NOT_FOUND", message: "Case not found" },
@@ -71,10 +73,25 @@ casesRouter.post("/:id/structure", async (req, res) => {
     });
   }
 
+  const note = parsed.data.note;
+  // Same note already structured → reuse (no AI call)
+  if (found.note === note && found.profile) {
+    return res.json({
+      caseId,
+      profile: {
+        ...found.profile,
+        confirmedUrgency: null,
+        confirmedAt: null,
+      },
+      provider: "cache",
+    });
+  }
+
   const provider = getStructureProvider();
-  const profile = await provider.structure({ note: parsed.data.note });
-  const updated = store.updateCase(caseId, {
-    note: parsed.data.note,
+  const profile = await provider.structure({ note });
+  // Keep prior confirmation only if note unchanged — here note changed so reset
+  const updated = store.updateCase(caseId!, {
+    note,
     profile,
   });
 
