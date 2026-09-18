@@ -1,3 +1,37 @@
+# Youth Support Hackathon MVP
+
+화면·API 계약: [`docs/MVP_SCREEN_AND_API.md`](docs/MVP_SCREEN_AND_API.md)
+
+## Backend (현재)
+
+메모리 스토어 + Express. Case API 3개까지 동작.
+
+```bash
+npm install
+npm run typecheck
+npm run smoke:cases
+npm run smoke:structure
+npm run smoke:referrals
+npm run dev           # http://localhost:3000
+```
+
+- Case: `POST/GET /api/cases`, `GET /api/cases/:id`
+- AI/확정: `POST /api/cases/:id/structure`, `POST /api/cases/:id/profile/confirm`
+- Referral: `POST /api/referrals`, `POST .../accept`, `POST .../request-info`, `GET .../timeline`
+
+스키마: `supabase/migrations/`. Supabase 연결은 이후 단계.
+
+### Gemini (선택)
+
+`.env`에 키를 넣으면 `structure`가 Gemini를 쓰고, 없거나 실패하면 mock으로 폴백한다.
+
+```bash
+cp .env.example .env
+# GEMINI_API_KEY=...
+```
+
+---
+
 # Cursor Hackathon MVP Rule Pack
 
 90분 안에 하나의 end-to-end 데모 플로우를 완성할 때 쓰는 Cursor 프로젝트 규칙 번들이다.
