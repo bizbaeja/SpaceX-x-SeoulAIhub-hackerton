@@ -10,7 +10,7 @@ test('entry routes students and staff to separate preserved surfaces', () => {
   const redirects = fs.readFileSync(path.join(publicDir, '_redirects'), 'utf8');
   assert.match(entry, /href="\/chat"/);
   assert.match(entry, /href="\/teacher"/);
-  assert.match(redirects, /^\/\s+\/entry\.html\s+200/m);
+  assert.match(redirects, /^\/\s+\/entry\.html\s+200!/m);
   assert.match(redirects, /^\/chat\s+\/chat\/index\.html\s+200/m);
   assert.match(redirects, /^\/teacher\s+\/index\.html\s+200/m);
   const chat = fs.readFileSync(path.join(publicDir, 'chat', 'index.html'), 'utf8');
