@@ -1,0 +1,4 @@
+# Entry surfaces only. /api/* is owned by netlify.toml (force=true).
+/        /entry.html              200
+/chat    /chat/index.html         200
+/teacher /index.html              200

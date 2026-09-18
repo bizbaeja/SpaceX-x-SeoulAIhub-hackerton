@@ -11,9 +11,24 @@
   node_bundler = "esbuild"
   included_files = ["public/**", "server.js", "institutions-data.json"]
 
-# 정적은 CDN, API만 Function
+# API first (force) so entry/_redirects never swallow /api/*
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/server/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/"
+  to = "/entry.html"
+  status = 200
+
+[[redirects]]
+  from = "/chat"
+  to = "/chat/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/teacher"
+  to = "/index.html"
+  status = 200

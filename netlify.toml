@@ -17,3 +17,18 @@
   to = "/.netlify/functions/server/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/"
+  to = "/entry.html"
+  status = 200
+
+[[redirects]]
+  from = "/chat"
+  to = "/chat/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/teacher"
+  to = "/index.html"
+  status = 200
