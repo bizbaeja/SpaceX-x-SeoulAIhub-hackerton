@@ -11,74 +11,8 @@ const API_KEY_FILE =
   path.join(os.homedir(), "OneDrive", "Desktop", "api\uD0A4.txt");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-const institutions = [
-  {
-    id: "youth-center",
-    name: "마포구청소년상담복지센터",
-    type: "청소년상담복지",
-    evidenceLevel: "공식 공개정보 기반",
-    ages: [9, 24],
-    districts: ["마포구"],
-    domains: ["정서", "학교적응", "가족"],
-    required: ["age", "district", "consent"],
-    intake: "사전 전화 예약 후 내방상담",
-    publicNote: "청소년(만 9~24세) 및 학부모 대상. 상담·의료·법률·정보 등 지역 자원 연계 허브 역할을 안내하고 있습니다.",
-    sourceLinks: [
-      {
-        label: "서비스 안내",
-        url: "https://youthnaroo.or.kr/sub07/sub01.php"
-      },
-      {
-        label: "현재 센터 홈페이지",
-        url: "http://www.mapo1388.or.kr/"
-      }
-    ]
-  },
-  {
-    id: "mental-health",
-    name: "마포구정신건강복지센터",
-    type: "아동·청소년 정신건강",
-    evidenceLevel: "공식 공개정보 기반",
-    ages: [7, 19],
-    districts: ["마포구"],
-    domains: ["정서", "자해·자살", "정신건강"],
-    required: ["age", "district", "guardianConsent", "safetyStatus"],
-    intake: "전화 예약 → 내소 또는 가정방문",
-    publicNote: "만 7~19세 마포구 아동·청소년 및 가족, 관내 재학생·교사를 대상으로 심층평가·치료기관 연계·사례관리를 안내하며 아동·청소년은 보호자 동의 절차가 필요합니다.",
-    sourceLinks: [
-      {
-        label: "아동청소년 사업",
-        url: "https://mmhwc.or.kr/child/1"
-      },
-      {
-        label: "이용안내",
-        url: "https://mmhwc.or.kr/use/1"
-      }
-    ]
-  },
-  {
-    id: "family-center",
-    name: "마포구가족센터",
-    type: "가족상담·가족지원",
-    evidenceLevel: "공식 공개정보 기반",
-    ages: [13, 99],
-    districts: ["마포구"],
-    domains: ["가족", "경제", "돌봄"],
-    required: ["district", "consent"],
-    intake: "센터별 프로그램 확인 후 사전 예약",
-    publicNote: "가족갈등·부모자녀 문제 상담과 함께 경제·심리정서·양육 등 복합 어려움이 있는 가족 대상 상담·사례관리·긴급위기 지원을 안내합니다.",
-    sourceLinks: [
-      {
-        label: "가족센터 사업 안내",
-        url: "https://mapo.familynet.or.kr/web/lay1/S1T296C337/contents.do"
-      },
-      {
-        label: "2026 가족상담 안내",
-        url: "https://m.site.naver.com/1VVIs"
-      }
-    ]
-  }
-];
+const institutionDataset = require("./institutions-data.json");
+const institutions = institutionDataset.institutions;
 
 const cases = new Map();
 
@@ -350,7 +284,7 @@ function matchInstitutions(caseData, excludeId = null) {
   return institutions
     .filter(item => item.id !== excludeId)
     .map(item => {
-      const ageOk = Number.isFinite(age) && age >= item.ages[0] && age <= item.ages[1];
+      const ageOk = !item.ages || (Number.isFinite(age) && age >= item.ages[0] && age <= item.ages[1]);
       const regionOk =
         Boolean(district) &&
         (item.districts.includes("서울") || item.districts.includes(district));
@@ -404,6 +338,8 @@ function publicCase(record) {
     status: record.status,
     currentOwner: record.currentOwner,
     currentInstitution: record.currentInstitution,
+    caseData: record.caseData,
+    route: record.route || [],
     pending: record.pending,
     timeline: record.timeline,
     handoffDocument: record.handoffDocument || null
@@ -421,8 +357,13 @@ async function apiRouter(req, res, pathname) {
       ok: true,
       model: MODEL,
       keyReadable,
-      institutions: institutions.length
+      institutions: institutions.length,
+      datasetVerifiedAt: institutionDataset.verifiedAt
     });
+  }
+
+  if (req.method === "GET" && pathname === "/api/institutions") {
+    return json(res, 200, institutionDataset);
   }
 
   if (req.method === "POST" && pathname === "/api/structure") {
@@ -464,6 +405,22 @@ async function apiRouter(req, res, pathname) {
       status: "기관 검토 중",
       currentOwner: "학교 학생맞춤통합지원 담당자",
       currentInstitution: institution,
+      route: [
+        {
+          id: "school",
+          name: "학교 학생맞춤통합지원 담당자",
+          type: "source",
+          state: "sent"
+        },
+        {
+          id: institution.id,
+          name: institution.name,
+          type: "institution",
+          state: "reviewing",
+          via: "school",
+          reason: "최초 기관 인계"
+        }
+      ],
       pending: null,
       timeline: [
         timelineEvent("사례 생성", "AI 구조화 결과를 담당자가 확인했습니다.", "학교 담당자"),
@@ -484,6 +441,8 @@ async function apiRouter(req, res, pathname) {
 
     if (action === "supplement") {
       record.status = "보완 요청";
+      const currentRoute = record.route?.at(-1);
+      if (currentRoute) currentRoute.state = "supplement";
       record.pending = {
         type: "supplement",
         fields: ["safetyStatus"],
@@ -499,39 +458,57 @@ async function apiRouter(req, res, pathname) {
     } else if (action === "resubmit") {
       record.caseData = body.caseData || record.caseData;
       record.status = "기관 재검토 중";
+      const currentRoute = record.route?.at(-1);
+      if (currentRoute) currentRoute.state = "reviewing";
       record.pending = null;
       record.timeline.push(
         timelineEvent("보완 후 재제출", "요청된 정보만 추가해 동일 기관에 다시 제출했습니다.", "학교 담당자")
       );
     } else if (action === "reroute") {
-      const matches = matchInstitutions(record.caseData, record.currentInstitution.id);
-      const next =
-        matches.find(item => item.id === "family-center" && item.readyToSend) ||
-        matches.find(item => item.readyToSend && item.matchedDomains.includes("가족")) ||
-        matches.find(item => item.readyToSend) ||
-        matches[0];
+      const targetInstitutionId = String(body.targetInstitutionId || "").trim();
+      const reason = String(body.reason || "").trim();
+      const next = institutions.find(item => item.id === targetInstitutionId);
 
-      if (!next) return json(res, 409, { error: "재라우팅할 데모 기관이 없습니다." });
+      if (!next) return json(res, 400, { error: "직접 인계할 기관을 선택하세요." });
+      if (next.id === record.currentInstitution.id) {
+        return json(res, 400, { error: "현재 검토 중인 기관과 다른 기관을 선택하세요." });
+      }
+      if (reason.length < 5) {
+        return json(res, 400, { error: "직접 인계 사유를 구체적으로 입력하세요." });
+      }
 
       const previous = record.currentInstitution;
+      const draftResult = await callGemma(handoffPrompt(record.caseData, next));
+      const nextDocument = cleanModelJson(draftResult.text);
+
+      const previousRoute = record.route?.at(-1);
+      if (previousRoute) previousRoute.state = "transferred";
+
       record.currentInstitution = next;
-      record.status = "재라우팅 완료 · 기관 검토 중";
+      record.handoffDocument = nextDocument;
+      record.status = "기관 직접 인계 · 검토 중";
       record.pending = null;
+      record.route = record.route || [];
+      record.route.push({
+        id: next.id,
+        name: next.name,
+        type: "institution",
+        state: "reviewing",
+        via: previous.id,
+        reason
+      });
       record.timeline.push(
         timelineEvent(
-          "재연계 권고",
-          "복합 가족지원 개입이 더 적합하다는 사유가 구조화되었습니다.",
+          "기관 직접 인계",
+          `${previous.name}이(가) ${next.name}에 직접 인계했습니다. 사유: ${reason}`,
           previous.name
-        ),
-        timelineEvent(
-          "자동 재라우팅",
-          `기존 사례정보를 재사용해 ${next.name}로 인계했습니다.`,
-          "잇다"
         )
       );
     } else if (action === "accept") {
       record.status = "주관기관 책임 수락";
       record.currentOwner = record.currentInstitution.name;
+      const currentRoute = record.route?.at(-1);
+      if (currentRoute) currentRoute.state = "accepted";
       record.pending = null;
       record.timeline.push(
         timelineEvent(
