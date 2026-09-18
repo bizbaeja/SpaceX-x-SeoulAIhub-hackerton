@@ -1,0 +1,13 @@
+{
+  "name": "itda-youth-handoff-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "잇다 — AI 기반 위기학생 Closed-loop Handoff MVP",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

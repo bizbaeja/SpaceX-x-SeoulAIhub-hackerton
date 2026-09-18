@@ -1,0 +1,7 @@
+﻿node_modules/
+.env
+.env.local
+*.log
+api키.txt
+api_key.txt
+.DS_Store

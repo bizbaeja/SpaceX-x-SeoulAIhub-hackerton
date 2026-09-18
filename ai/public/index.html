@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="잇다 — 발견된 위기학생을 책임 수락까지 연결하는 AI 기반 기관 인계 MVP" />
+  <title>잇다 — 발견에서 책임 수락까지</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand-mark" aria-hidden="true">잇</div>
+      <div>
+        <div class="brand">잇다</div>
+        <div class="brand-sub">No Wrong Door for Youth</div>
+      </div>
+    </div>
+    <div class="top-status">
+      <span class="pulse"></span>
+      <span id="modelStatus">Gemma 연결 확인 중</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="eyebrow">서울형 Closed-loop Handoff MVP</div>
+      <h1>발견된 학생이<br><span>기관 사이에서 사라지지 않도록.</span></h1>
+      <p>
+        교사의 비정형 상담 기록을 AI가 검증 가능한 공통 사례로 구조화하고,
+        기관 조건과 대조해 <strong>실제 책임 수락까지</strong> 인계를 추적합니다.
+      </p>
+      <div class="hero-metrics">
+        <div><strong>0분</strong><span>책임자 미지정 목표</span></div>
+        <div><strong>1회</strong><span>사례 입력</span></div>
+        <div><strong>끝까지</strong><span>수락 추적</span></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="stepper-card">
+        <div class="section-label">LIVE FLOW</div>
+        <ol class="stepper" id="stepper">
+          <li class="active" data-step="1"><span>1</span><div><b>사례 입력</b><small>교사 상담 메모</small></div></li>
+          <li data-step="2"><span>2</span><div><b>AI 구조화</b><small>사실 · 필요 · 미확인</small></div></li>
+          <li data-step="3"><span>3</span><div><b>기관 대조</b><small>조건 · 누락정보</small></div></li>
+          <li data-step="4"><span>4</span><div><b>Closed-loop 인계</b><small>보완 · 재라우팅 · 수락</small></div></li>
+        </ol>
+        <div class="principle">
+          <span>핵심 원칙</span>
+          <p>어떤 순간에도 <b>현재 책임자</b>가 빈칸이 되지 않습니다.</p>
+        </div>
+      </aside>
+
+      <div class="main-panel">
+        <section class="panel active" id="inputPanel">
+          <div class="panel-head">
+            <div>
+              <div class="section-label">STEP 01</div>
+              <h2>교사 상담 메모 입력</h2>
+            </div>
+            <button class="ghost-btn" id="sampleBtn">데모 사례 불러오기</button>
+          </div>
+
+          <label class="field-label" for="caseNote">상담 기록</label>
+          <textarea id="caseNote" rows="10" placeholder="학생과 상담한 내용을 자연어로 입력하세요."></textarea>
+          <div class="privacy-line">
+            <span>●</span>
+            해커톤 데모에서는 가상 사례만 사용하세요. 입력 내용은 이 MVP에서 별도 저장하지 않습니다.
+          </div>
+          <button class="primary-btn" id="structureBtn">
+            <span>Gemma 4로 사례 구조화</span>
+            <span class="arrow">→</span>
+          </button>
+          <div class="error-box hidden" id="inputError"></div>
+        </section>
+
+        <section class="panel hidden" id="structurePanel">
+          <div class="panel-head">
+            <div>
+              <div class="section-label">STEP 02 · HUMAN IN THE LOOP</div>
+              <h2>AI 구조화 결과</h2>
+            </div>
+            <div class="ai-badge">Gemma 4 · 진단하지 않음</div>
+          </div>
+
+          <div class="summary-box">
+            <span>사례 요약</span>
+            <p id="summaryText"></p>
+          </div>
+
+          <div class="grid-two">
+            <div class="result-card">
+              <div class="result-title"><span class="dot good"></span>확인된 사실</div>
+              <div id="factsList"></div>
+            </div>
+            <div class="result-card warning-card">
+              <div class="result-title"><span class="dot warn"></span>아직 확인되지 않은 정보</div>
+              <div id="unknownsList"></div>
+            </div>
+          </div>
+
+          <div class="result-card">
+            <div class="result-title"><span class="dot info"></span>지원 필요 영역</div>
+            <div class="chips" id="needsList"></div>
+          </div>
+
+          <div class="human-check">
+            <div>
+              <b>담당자 확인</b>
+              <span>AI가 만든 구조화 결과를 사람이 확인한 뒤 기관 조건과 대조합니다.</span>
+            </div>
+            <button class="primary-btn compact" id="confirmStructureBtn">확인하고 기관 찾기 →</button>
+          </div>
+        </section>
+
+        <section class="panel hidden" id="matchPanel">
+          <div class="panel-head">
+            <div>
+              <div class="section-label">STEP 03 · RULE-BASED MATCHING</div>
+              <h2>기관 조건 대조</h2>
+            </div>
+            <span class="demo-pill">공식 공개정보 기반 · 실시간 수용여력 미연동</span>
+          </div>
+
+          <div class="match-explainer">
+            <span class="mini-ai">AI</span>
+            <span>자연어 → 구조화</span>
+            <span class="connector">→</span>
+            <span class="mini-rule">RULE</span>
+            <span>연령 · 지역 · 필요영역 · 필수정보 대조</span>
+          </div>
+
+          <div id="matchesList" class="matches-list"></div>
+        </section>
+
+        <section class="panel hidden" id="handoffPanel">
+          <div class="panel-head">
+            <div>
+              <div class="section-label">STEP 04 · CLOSED LOOP</div>
+              <h2>인계가 끝날 때까지 추적</h2>
+            </div>
+            <div class="status-pill" id="caseStatus">기관 검토 중</div>
+          </div>
+
+          <div class="owner-banner">
+            <span>현재 책임자</span>
+            <strong id="currentOwner">학교 학생맞춤통합지원 담당자</strong>
+            <small>수신 기관이 책임을 수락하기 전까지 기존 책임자가 유지됩니다.</small>
+          </div>
+
+          <div class="handoff-grid">
+            <div>
+              <div class="subhead">기관 전송용 AI 인계서</div>
+              <div class="document-card" id="handoffDocument"></div>
+              <div id="handoffActions" class="handoff-actions"></div>
+            </div>
+
+            <div>
+              <div class="subhead">인계 타임라인</div>
+              <div class="timeline" id="timeline"></div>
+            </div>
+          </div>
+
+          <div class="success-state hidden" id="successState">
+            <div class="success-check">✓</div>
+            <div>
+              <span>Closed loop complete</span>
+              <h3>주관기관이 책임을 수락했습니다.</h3>
+              <p>이제 KPI는 ‘추천 정확도’가 아니라 <b>도움 요청 → 책임 수락 → 첫 지원 시작</b>까지의 시간입니다.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>기관 대상·서비스·이용방식은 공개자료 기반이며, 실시간 접수여력과 기관 응답은 데모 시나리오입니다.</span>
+    <span>민감정보 최소화 · 사람의 최종 확인 · 진단/위험점수 없음</span>
+  </footer>
+
+  <div class="modal hidden" id="handoffModal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="section-label">AI HANDOFF DRAFT</div>
+          <h2>전송 전 최소정보 검토</h2>
+        </div>
+        <button class="icon-btn" id="closeModal" aria-label="닫기">×</button>
+      </div>
+      <div id="modalDocument"></div>
+      <div class="modal-actions">
+        <button class="ghost-btn" id="cancelHandoff">취소</button>
+        <button class="primary-btn compact" id="sendHandoff">담당자 검토 완료 · 인계 전송</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
