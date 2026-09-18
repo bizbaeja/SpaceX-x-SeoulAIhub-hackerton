@@ -1,15 +1,31 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { AppContext } from '../app.js';
-import { CONSENT_STATUSES, NEEDS, URGENCIES, iso, parseAgeBand, toProfile, type ProfileRow, type Urgency } from '../domain.js';
+import {
+  CONSENT_STATUSES,
+  NEEDS,
+  REAL_NAME_MESSAGE,
+  URGENCIES,
+  isRealNameLike,
+  iso,
+  parseAgeBand,
+  toProfile,
+  type ProfileRow,
+  type Urgency,
+} from '../domain.js';
 import { HttpError, currentRole, parseBody, requireRole } from '../http.js';
-import { loadCase, loadCaseDetail, loadOrganizations, loadProfile, matchBasis, requireConfirmed } from '../queries.js';
+import {
+  loadCase,
+  loadCaseDetail,
+  loadOrganizations,
+  loadProfile,
+  matchBasis,
+  requireConfirmed,
+  saveAiProfile,
+} from '../queries.js';
 import { recommend } from '../recommend.js';
 
 // docs/MVP_SCREEN_AND_API.md 4.1 ~ 4.6
-
-// 한글 2~4자만으로 된 alias는 실명일 가능성이 높아 거부한다. (student-demo-001, 김○○ 같은 가명 사용)
-const REAL_NAME_LIKE = /^(?!익명|학생|가명|비공개)[가-힣]{2,4}$/;
 
 const createCaseSchema = z.object({
   alias: z
@@ -17,7 +33,7 @@ const createCaseSchema = z.object({
     .trim()
     .min(1)
     .max(30)
-    .refine((v) => !REAL_NAME_LIKE.test(v), '실명으로 보입니다. student-demo-001, 김○○ 형태의 가명을 사용하세요.')
+    .refine((v) => !isRealNameLike(v), REAL_NAME_MESSAGE)
     .optional(),
   ageBand: z.string().trim().refine((v) => parseAgeBand(v) !== null, "ageBand는 '13-18' 형식(6~24세)이어야 합니다."),
   region: z.string().trim().min(1).max(20),
@@ -110,21 +126,7 @@ export function casesRouter({ db, ai }: AppContext) {
     const { note } = parseBody(structureSchema, req.body);
     const c = await loadCase(db, req.params.id);
     const out = await ai.structure({ note, ageBand: c.age_band, region: c.region });
-    const p = out.profile;
-    await db.query('update cases set note = $2, updated_at = now() where id = $1::uuid', [c.id, out.maskedNote]);
-    const [profile] = await db.query<ProfileRow>(
-      `insert into case_profiles
-         (case_id, summary, risk_types, needs, suggested_needs, signals, suggested_urgency, urgency_rationale, crisis_flag, ai_provider)
-       values ($1::uuid, $2, $3::text[], $4::text[], $4::text[], $5::text[], $6, $7, $8, $9)
-       on conflict (case_id) do update set
-         summary = excluded.summary, risk_types = excluded.risk_types, needs = excluded.needs,
-         suggested_needs = excluded.suggested_needs, signals = excluded.signals,
-         suggested_urgency = excluded.suggested_urgency, urgency_rationale = excluded.urgency_rationale,
-         crisis_flag = excluded.crisis_flag, ai_provider = excluded.ai_provider, structured_at = now(),
-         confirmed_urgency = null, confirmed_by = null, confirmed_at = null
-       returning *`,
-      [c.id, p.summary, p.riskTypes, p.needs, p.signals, p.suggestedUrgency, p.urgencyRationale, p.crisisFlag, out.provider],
-    );
+    const profile = await saveAiProfile(db, c.id, out);
     res.json({
       caseId: c.id,
       profile: toProfile(profile),

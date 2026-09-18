@@ -10,6 +10,8 @@ export interface GeminiConfig {
   /** 앞에서부터 시도. 모델 폐기(404)·과부하(429/5xx)·시간 초과면 다음 모델로 넘어간다. */
   models: string[];
   timeoutMs: number;
+  /** 스트리밍에서 첫 글자가 이 시간 안에 안 오면 다음 모델로 넘어간다. (기본 timeoutMs) */
+  firstTokenTimeoutMs?: number;
 }
 
 export const SYSTEM_INSTRUCTION = `너는 학교 교사를 돕는 청소년 상담 메모 구조화 도우미다. 결과는 "제안"이며 최종 긴급도는 교사가 확정한다.
@@ -53,10 +55,14 @@ export function buildRequest(model: string, { note, ageBand, region }: Structure
       temperature: 0.2,
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
-      ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+      ...thinkingConfigFor(model),
     },
   };
 }
+
+/** Gemini 3 계열 추론 수준. 채팅 답장은 첫 글자가 빨라야 해서 'minimal'을 쓴다. */
+export const thinkingConfigFor = (model: string, level: 'minimal' | 'low' = 'low') =>
+  model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: level } } : {};
 
 class GeminiHttpError extends Error {
   constructor(
@@ -76,11 +82,11 @@ interface GeminiResponse {
   error?: { status?: string; message?: string };
 }
 
-async function generate(cfg: GeminiConfig, model: string, input: StructureInput): Promise<string> {
+async function generate(cfg: GeminiConfig, model: string, body: object): Promise<string> {
   const res = await fetch(`${API_BASE}/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
-    body: JSON.stringify(buildRequest(model, input)),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(cfg.timeoutMs),
   });
   const json = (await res.json().catch(() => ({}))) as GeminiResponse;
@@ -93,22 +99,111 @@ async function generate(cfg: GeminiConfig, model: string, input: StructureInput)
   return text;
 }
 
+/**
+ * 모델을 앞에서부터 시도해 첫 성공 결과를 돌려준다. (구조화·채팅 공용)
+ * 응답 파싱 실패도 다음 모델로 넘기고, 모두 실패하면 사유를 모아 throw → 상위에서 mock 대체.
+ */
+export async function callGemini<T>(
+  cfg: GeminiConfig,
+  buildBody: (model: string) => object,
+  parse: (text: string) => T,
+): Promise<{ result: T; model: string }> {
+  const errors: string[] = [];
+  for (const model of cfg.models) {
+    try {
+      return { result: parse(await generate(cfg, model, buildBody(model))), model };
+    } catch (err) {
+      const reason = `${model}: ${err instanceof Error ? err.message : String(err)}`;
+      errors.push(reason);
+      if (!shouldTryNextModel(err)) break;
+      console.warn(`[ai] ${reason} → 다음 모델 시도`);
+    }
+  }
+  throw new Error(errors.join(' | '));
+}
+
+/** streamGenerateContent(SSE)로 텍스트 조각을 순서대로 내보낸다. */
+async function* streamGemini(cfg: GeminiConfig, model: string, body: object): AsyncGenerator<string> {
+  // 첫 글자 제한 시간(과부하로 오래 매달리는 모델을 빨리 포기) + 전체 제한 시간
+  const firstTokenMs = cfg.firstTokenTimeoutMs ?? cfg.timeoutMs;
+  const controller = new AbortController();
+  const firstTokenTimer = setTimeout(() => controller.abort(new Error(`첫 글자 ${firstTokenMs}ms 초과`)), firstTokenMs);
+  const totalTimer = setTimeout(() => controller.abort(new Error(`전체 ${cfg.timeoutMs * 2}ms 초과`)), cfg.timeoutMs * 2);
+  try {
+    const res = await fetch(`${API_BASE}/models/${model}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok || !res.body) {
+      const json = (await res.json().catch(() => ({}))) as GeminiResponse;
+      throw new GeminiHttpError(res.status, `HTTP ${res.status} ${json.error?.status ?? ''} ${json.error?.message?.slice(0, 120) ?? ''}`.trim());
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newline: number;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line.startsWith('data:')) continue;
+        const chunk = JSON.parse(line.slice(5)) as GeminiResponse;
+        const text = chunk.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+        if (text) {
+          clearTimeout(firstTokenTimer);
+          yield text;
+        }
+      }
+    }
+  } finally {
+    clearTimeout(firstTokenTimer);
+    clearTimeout(totalTimer);
+  }
+}
+
+/**
+ * 스트리밍 + 모델 대체. 첫 글자가 나오기 전에 실패하면 다음 모델로 넘어가고,
+ * 도중에 끊기면 그대로 throw 한다(이미 보낸 글자는 되돌릴 수 없으므로 상위에서 마무리).
+ * onModel: 실제로 응답을 시작한 모델 이름 콜백
+ */
+export async function* streamWithFallback(
+  cfg: GeminiConfig,
+  buildBody: (model: string) => object,
+  onModel?: (model: string) => void,
+): AsyncGenerator<string> {
+  const errors: string[] = [];
+  for (const model of cfg.models) {
+    let started = false;
+    try {
+      for await (const text of streamGemini(cfg, model, buildBody(model))) {
+        if (!started) onModel?.(model);
+        started = true;
+        yield text;
+      }
+      if (!started) throw new Error('빈 응답');
+      return;
+    } catch (err) {
+      if (started) throw err;
+      const reason = `${model}: ${err instanceof Error ? err.message : String(err)}`;
+      errors.push(reason);
+      if (!shouldTryNextModel(err)) break;
+      console.warn(`[ai] ${reason} → 다음 모델 시도`);
+    }
+  }
+  throw new Error(errors.join(' | '));
+}
+
 export function createGeminiProvider(cfg: GeminiConfig): AiProvider {
   return {
     name: `gemini:${cfg.models[0]}`,
     async structure(input) {
-      const errors: string[] = [];
-      for (const model of cfg.models) {
-        try {
-          return { ...parseModelOutput(await generate(cfg, model, input)), via: `gemini:${model}` };
-        } catch (err) {
-          const reason = `${model}: ${err instanceof Error ? err.message : String(err)}`;
-          errors.push(reason);
-          if (!shouldTryNextModel(err)) break;
-          console.warn(`[ai] ${reason} → 다음 모델 시도`);
-        }
-      }
-      throw new Error(errors.join(' | '));
+      const { result, model } = await callGemini(cfg, (m) => buildRequest(m, input), parseModelOutput);
+      return { ...result, via: `gemini:${model}` };
     },
   };
 }

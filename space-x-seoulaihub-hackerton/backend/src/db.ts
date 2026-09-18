@@ -64,7 +64,7 @@ export async function migrate(db: Db): Promise<{ seeded: boolean }> {
 
 export async function resetDb(db: Db): Promise<void> {
   await db.exec(
-    'drop table if exists referral_logs, referrals, case_profiles, cases, services, organizations cascade;',
+    'drop table if exists chat_messages, chat_sessions, referral_logs, referrals, case_profiles, cases, services, organizations cascade;',
   );
   await migrate(db);
 }
