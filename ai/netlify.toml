@@ -1,4 +1,4 @@
-# Base directory = ai 일 때 이 파일을 사용합니다.
+# Base directory = ai
 [build]
   command = "npm install"
   publish = "public"
@@ -11,9 +11,9 @@
   node_bundler = "esbuild"
   included_files = ["public/**", "server.js"]
 
-# 정적+API 모두 함수로 (경로 깨짐 방지). MVP용.
+# 정적은 CDN, API만 Function
 [[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/server"
+  from = "/api/*"
+  to = "/.netlify/functions/server/:splat"
   status = 200
   force = true

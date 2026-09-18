@@ -1,5 +1,22 @@
 const serverless = require("serverless-http");
-// default export = handleRequest(req, res)
 const handleRequest = require("../../server.js");
 
-exports.handler = serverless(handleRequest);
+const baseHandler = serverless(handleRequest);
+
+function withApiPath(event) {
+  const next = { ...event };
+  let p = next.path || next.rawPath || "/";
+  p = p.replace(/^\/\.netlify\/functions\/server\/?/, "/");
+  if (!p.startsWith("/api")) {
+    p = "/api" + (p.startsWith("/") ? p : `/${p}`);
+  }
+  // /api/health 형태 유지
+  if (p === "/api") p = "/api/";
+  next.path = p;
+  next.rawPath = p;
+  return next;
+}
+
+exports.handler = async (event, context) => {
+  return baseHandler(withApiPath(event), context);
+};

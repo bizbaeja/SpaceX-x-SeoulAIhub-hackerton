@@ -1,4 +1,4 @@
-# 레포 루트에서 빌드할 때 (Base directory 비움)
+# 레포 루트 빌드용 (Base directory 비울 때)
 [build]
   base = "ai"
   command = "npm install"
@@ -13,7 +13,7 @@
   included_files = ["public/**", "server.js"]
 
 [[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/server"
+  from = "/api/*"
+  to = "/.netlify/functions/server/:splat"
   status = 200
   force = true

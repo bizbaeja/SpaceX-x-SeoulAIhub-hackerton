@@ -71,8 +71,9 @@ jobs:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
         run: npx netlify-cli deploy --build --prod --message="main ${GITHUB_SHA}"
 
-      - name: Fail if secrets missing on PR
+      - name: Skip when secrets missing
         if: steps.check.outputs.has_secrets == 'false'
         run: |
-          echo "Netlify secrets 미설정 — GitHub 앱으로 사이트를 연결하거나 Secrets를 추가하세요. (DEPLOY.md)"
-          exit 1
+          echo "::notice::NETLIFY_AUTH_TOKEN / NETLIFY_SITE_ID 없음 — Actions 배포는 건너뜁니다."
+          echo "Netlify GitHub 앱 연동이 있으면 Preview/Production은 거기서 처리됩니다."
+          echo "나중에 Secrets를 넣으면 이 워크플로도 동작합니다. (DEPLOY.md)"
